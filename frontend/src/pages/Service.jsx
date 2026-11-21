@@ -4,6 +4,7 @@ import AdminLayout from '../layouts/AdminLayout';
 
 export default function Service() {
   const [activeTab, setActiveTab] = useState('appointments');
+  const [statusFilter, setStatusFilter] = useState('Active'); // Active | Completed | All
   const [appointments, setAppointments] = useState([]);
   const [technicians, setTechnicians] = useState([]);
   const [customersList, setCustomersList] = useState([]);
@@ -15,19 +16,16 @@ export default function Service() {
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
 
-  // --- Appointment Form - SERVICEAPPOINTMENT MODEL MATCH ---
   const [appointmentForm, setAppointmentForm] = useState({
     customer: '', vehicle: '', service_type: 'General Service',
     appointment_date: new Date().toISOString().split('T')[0],
     appointment_time: '10:00', status: 'Booked', notes: '',
   });
 
-  // --- Technician Form - TECHNICIAN MODEL MATCH ---
   const [techForm, setTechForm] = useState({
     name: '', phone: '', specialization: 'Engine', experience_years: '', is_available: true,
   });
 
-  // --- Service Record Form - SERVICERECORD MODEL MATCH ---
   const [recordForm, setRecordForm] = useState({
     technician: '', work_done: '', cost: '', recommendation: '',
   });
@@ -52,7 +50,13 @@ export default function Service() {
     return f ? `${f.model_name} ${f.variant || ''}` : '—';
   };
 
-  // --- Book Appointment ---
+  // Filter - Completed wale Active me nahi dikhenge
+  const visibleAppointments = appointments.filter(a => {
+    if (statusFilter === 'Active') return a.status !== 'Completed' && a.status !== 'Cancelled';
+    if (statusFilter === 'Completed') return a.status === 'Completed';
+    return true;
+  });
+
   const handleAppointment = async (e) => {
     e.preventDefault();
     if (!appointmentForm.customer || !appointmentForm.vehicle || !appointmentForm.appointment_date || !appointmentForm.appointment_time) {
@@ -91,7 +95,6 @@ export default function Service() {
     }
   };
 
-  // --- Add Technician ---
   const handleAddTechnician = async (e) => {
     e.preventDefault();
     if (!techForm.name || !techForm.phone) { alert('Name aur Phone zaroori hai'); return; }
@@ -112,17 +115,18 @@ export default function Service() {
     }
   };
 
-  // --- Complete Service - Create ServiceRecord + Assign Technician ---
   const openRecord = (appt) => {
     setSelectedAppointment(appt);
     setRecordForm({ technician: '', work_done: '', cost: '', recommendation: '' });
     setShowRecordModal(true);
   };
 
+  // --- FIXED: Complete Service + Remove from Active List ---
   const handleRecord = async (e) => {
     e.preventDefault();
     if (!recordForm.work_done || !recordForm.cost) { alert('Work Done aur Cost zaroori hai'); return; }
     try {
+      // 1. Service Record banao
       await api.post('service-records/', {
         appointment: selectedAppointment.id,
         technician: recordForm.technician ? Number(recordForm.technician) : null,
@@ -141,9 +145,18 @@ export default function Service() {
         }
         throw err;
       });
-      alert('Service Record save ho gaya! Technician assign ho gaya.');
+
+      // 2. Appointment ka status Completed kar do - YEHI MISSING THA
+      try {
+        await api.patch(`service-appointments/${selectedAppointment.id}/`, { status: 'Completed' });
+      } catch {
+        await api.patch(`appointments/${selectedAppointment.id}/`, { status: 'Completed' });
+      }
+
+      alert('Service Complete! Appointment Active list se hat gaya.');
       setShowRecordModal(false);
-      window.location.reload();
+      // 3. List se turant hata do - reload ka wait mat kar
+      setAppointments(prev => prev.map(a => a.id === selectedAppointment.id ? { ...a, status: 'Completed' } : a));
     } catch (err) {
       console.log(err.response?.data);
       alert('Failed: ' + JSON.stringify(err.response?.data || 'Check Backend'));
@@ -152,38 +165,41 @@ export default function Service() {
 
   return (
     <AdminLayout title="Service Center" subtitle="Appointments, Technicians & Service History">
-      {/* Tabs */}
       <div className="flex gap-2 mb-6">
         <button onClick={() => setActiveTab('appointments')} className={`px-5 py-2.5 rounded-xl text-sm font-semibold ${activeTab === 'appointments' ? 'bg-[#0A1628] text-white' : 'bg-white border border-[#E8EBF0]'}`}>Appointments ({appointments.length})</button>
         <button onClick={() => setActiveTab('technicians')} className={`px-5 py-2.5 rounded-xl text-sm font-semibold ${activeTab === 'technicians' ? 'bg-[#0A1628] text-white' : 'bg-white border border-[#E8EBF0]'}`}>Technicians ({technicians.length})</button>
       </div>
 
-      {/* ===== APPOINTMENTS TAB ===== */}
       {activeTab === 'appointments' && (
         <>
-          <div className="flex justify-end mb-4">
+          <div className="flex flex-col sm:flex-row justify-between gap-3 mb-4">
+            <div className="flex gap-2">
+              <button onClick={() => setStatusFilter('Active')} className={`px-4 py-2 rounded-xl text- font-semibold ${statusFilter === 'Active' ? 'bg-[#0A1628] text-white' : 'bg-white border border-[#E8EBF0]'}`}>Active</button>
+              <button onClick={() => setStatusFilter('Completed')} className={`px-4 py-2 rounded-xl text- font-semibold ${statusFilter === 'Completed' ? 'bg-[#0A1628] text-white' : 'bg-white border border-[#E8EBF0]'}`}>Completed</button>
+              <button onClick={() => setStatusFilter('All')} className={`px-4 py-2 rounded-xl text- font-semibold ${statusFilter === 'All' ? 'bg-[#0A1628] text-white' : 'bg-white border border-[#E8EBF0]'}`}>All</button>
+            </div>
             <button onClick={() => setShowAppointmentModal(true)} className="bg-[#0A1628] text-white px-5 py-2.5 rounded-xl text-sm font-semibold">+ Book Appointment</button>
           </div>
           <div className="bg-white border border-[#E8EBF0] rounded- p-6">
-            <h3 className="font-display font-bold text-">All Appointments</h3>
+            <h3 className="font-display font-bold text-">All Appointments ({visibleAppointments.length})</h3>
             {loading ? <p className="text-sm text-[#5B6B82] py-8 text-center">Loading...</p>
-            : appointments.length === 0 ? <p className="text-sm text-[#5B6B82] py-8 text-center">Koi appointment nahi hai. + Book Appointment se add kar.</p>
-            : <div className="mt-5 space-y-3">{appointments.map(a => (
+            : visibleAppointments.length === 0 ? <p className="text-sm text-[#5B6B82] py-8 text-center">{statusFilter === 'Active' ? 'Koi active appointment nahi hai. + Book Appointment se add kar.' : 'Koi completed appointment nahi hai.'}</p>
+            : <div className="mt-5 space-y-3">{visibleAppointments.map(a => (
               <div key={a.id} className="flex flex-col sm:flex-row sm:items-center gap-3 bg-[#F6F7F9] rounded-2xl p-4">
                 <div className="w-10 h-10 bg-white border border-[#E8EBF0] rounded-xl flex items-center justify-center text-lg shrink-0">🔧</div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text- truncate">{getCustomerName(a.customer)} — {getVehicleName(a.vehicle)}</p>
                   <p className="text- text-[#5B6B82] truncate">{a.service_type} • {a.appointment_date} at {a.appointment_time} • {a.notes || 'No notes'}</p>
                 </div>
-                <span className="px-2.5 py-1 rounded-full text- font-semibold bg-blue-100 text-blue-700 shrink-0">{a.status}</span>
-                <button onClick={() => openRecord(a)} className="bg-[#0A1628] text-white px-4 py-2 rounded-xl text- font-semibold shrink-0">Complete Service →</button>
+                <span className={`px-2.5 py-1 rounded-full text- font-semibold shrink-0 ${a.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>{a.status}</span>
+                {a.status !== 'Completed' && <button onClick={() => openRecord(a)} className="bg-[#0A1628] text-white px-4 py-2 rounded-xl text- font-semibold shrink-0">Complete Service →</button>}
+                {a.status === 'Completed' && <span className="text- text-emerald-600 font-semibold shrink-0">✓ Done</span>}
               </div>
             ))}</div>}
           </div>
         </>
       )}
 
-      {/* ===== TECHNICIANS TAB ===== */}
       {activeTab === 'technicians' && (
         <>
           <div className="flex justify-end mb-4">
@@ -206,7 +222,6 @@ export default function Service() {
         </>
       )}
 
-      {/* ===== BOOK APPOINTMENT MODAL ===== */}
       {showAppointmentModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <form onSubmit={handleAppointment} className="bg-white rounded- w-full max-w- p-6 max-h- overflow-y-auto">
@@ -243,7 +258,6 @@ export default function Service() {
         </div>
       )}
 
-      {/* ===== ADD TECHNICIAN MODAL ===== */}
       {showTechModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <form onSubmit={handleAddTechnician} className="bg-white rounded- w-full max-w- p-6">
@@ -270,7 +284,6 @@ export default function Service() {
         </div>
       )}
 
-      {/* ===== COMPLETE SERVICE / ASSIGN TECHNICIAN MODAL ===== */}
       {showRecordModal && selectedAppointment && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <form onSubmit={handleRecord} className="bg-white rounded- w-full max-w- p-6">
@@ -280,14 +293,12 @@ export default function Service() {
             </div>
             <p className="text- text-[#5B6B82] mt-2">For: {getCustomerName(selectedAppointment.customer)} — {getVehicleName(selectedAppointment.vehicle)}</p>
             <p className="text- text-[#5B6B82]">Service: {selectedAppointment.service_type}</p>
-
             <label className="block text- font-medium mt-4">Assign Technician</label>
             <select value={recordForm.technician} onChange={e => setRecordForm({ ...recordForm, technician: e.target.value })} className="w-full mt-1 border border-[#E8EBF0] rounded-xl px-3 py-2.5 text-sm outline-none">
               <option value="">Select Technician</option>
               {technicians.map(t => <option key={t.id} value={t.id}>{t.name} — {t.specialization} ({t.experience_years} yrs) {t.is_available ? '' : '• Busy'}</option>)}
             </select>
             {technicians.length === 0 && <p className="text- text-red-500 mt-1">Pehle Technicians tab se Technician bana.</p>}
-
             <label className="block text- font-medium mt-4">Work Done *</label>
             <textarea value={recordForm.work_done} onChange={e => setRecordForm({ ...recordForm, work_done: e.target.value })} placeholder="e.g. Engine oil + filter changed, brake pads replaced" className="w-full mt-1 border border-[#E8EBF0] rounded-xl px-3 py-2.5 text-sm outline-none" rows={3} />
             <div className="grid grid-cols-2 gap-3 mt-4">

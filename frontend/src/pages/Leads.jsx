@@ -19,11 +19,13 @@ export default function Leads() {
     status: 'New', follow_up_date: '', notes: '',
   });
 
-  const [quoteForm, setQuoteForm] = useState({
-    quoted_price: '',
-    valid_until: '',
-    notes: '',
-  });
+
+const [quoteForm, setQuoteForm] = useState({
+  quoted_price: '',
+  discount: '0',
+  valid_until: '',
+  status: 'Sent',
+});
 
   useEffect(() => {
     Promise.all([
@@ -80,45 +82,43 @@ export default function Leads() {
   };
 
   // --- Create Quote - QUOTATION MODEL MATCH ---
-  const handleQuote = async (e) => {
-    e.preventDefault();
-    if (!quoteForm.quoted_price) {
-      alert('Quoted Price zaroori hai');
-      return;
-    }
-    const customerId = selectedLead.customer;
-    const vehicleId = selectedLead.interested_vehicle;
-    if (!customerId) { alert('Is Lead ka Customer nahi mila'); return; }
-    if (!vehicleId) { alert('Is Lead me Interested Vehicle select nahi hai. Pehle Lead me Vehicle select kar.'); return; }
-    const validUntil = new Date();
-    validUntil.setDate(validUntil.getDate() + 7);
-    const validUntilStr = validUntil.toISOString().split('T')[0];
-    try {
-      await api.post('quotations/', {
-        customer: customerId,
-        vehicle: vehicleId,
-        quoted_price: Number(quoteForm.quoted_price),
-        valid_until: quoteForm.valid_until || validUntilStr,
-        notes: quoteForm.notes || null,
-        status: 'Sent',
-      });
-      alert('Quote ban gayi aur save ho gayi!');
-      setShowQuoteModal(false);
-      setQuoteForm({ quoted_price: '', valid_until: '', notes: '' });
-    } catch (err) {
-      console.log(err.response?.data);
-      alert('Failed: ' + JSON.stringify(err.response?.data || 'Check Backend'));
-    }
-  };
+ const handleQuote = async (e) => {
+  e.preventDefault();
+  if (!quoteForm.quoted_price) { alert('Quoted Price zaroori hai'); return; }
+  const customerId = selectedLead.customer;
+  const vehicleId = selectedLead.interested_vehicle;
+  if (!customerId) { alert('Is Lead ka Customer nahi mila'); return; }
+  if (!vehicleId) { alert('Is Lead me Interested Vehicle select nahi hai.'); return; }
 
+  const validUntil = new Date();
+  validUntil.setDate(validUntil.getDate() + 7);
+  const validUntilStr = validUntil.toISOString().split('T')[0];
+
+  try {
+    await api.post('quotations/', {
+      lead: selectedLead.id,
+      vehicle: vehicleId,
+      customer: customerId,
+      quoted_price: Number(quoteForm.quoted_price),
+      discount: Number(quoteForm.discount || 0),
+      valid_until: quoteForm.valid_until || validUntilStr,
+      status: quoteForm.status,
+    });
+    alert('Quote ban gayi aur save ho gayi!');
+    setShowQuoteModal(false);
+    setQuoteForm({ quoted_price: '', discount: '0', valid_until: '', status: 'Sent' });
+  } catch (err) {
+    console.log(err.response?.data);
+    alert('Failed: ' + JSON.stringify(err.response?.data || 'Check Backend'));
+  }
+};
   const openQuote = (lead) => {
-    setSelectedLead(lead);
-    const d = new Date();
-    d.setDate(d.getDate() + 7);
-    setQuoteForm({ quoted_price: '', valid_until: d.toISOString().split('T')[0], notes: '' });
-    setShowQuoteModal(true);
-  };
-
+  setSelectedLead(lead);
+  const d = new Date();
+  d.setDate(d.getDate() + 7);
+  setQuoteForm({ quoted_price: '', discount: '0', valid_until: d.toISOString().split('T')[0], status: 'Sent' });
+  setShowQuoteModal(true);
+};
   return (
     <AdminLayout title="Leads & Customers" subtitle="Follow up, convert, close deals">
       <div className="flex flex-col sm:flex-row justify-between gap-3 mb-6">

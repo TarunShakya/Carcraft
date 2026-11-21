@@ -4,7 +4,7 @@ import AdminLayout from '../layouts/AdminLayout';
 
 export default function Service() {
   const [activeTab, setActiveTab] = useState('appointments');
-  const [statusFilter, setStatusFilter] = useState('Active'); // Active | Completed | All
+  const [statusFilter, setStatusFilter] = useState('Active');
   const [appointments, setAppointments] = useState([]);
   const [technicians, setTechnicians] = useState([]);
   const [customersList, setCustomersList] = useState([]);
@@ -50,7 +50,6 @@ export default function Service() {
     return f ? `${f.model_name} ${f.variant || ''}` : '—';
   };
 
-  // Filter - Completed wale Active me nahi dikhenge
   const visibleAppointments = appointments.filter(a => {
     if (statusFilter === 'Active') return a.status !== 'Completed' && a.status !== 'Cancelled';
     if (statusFilter === 'Completed') return a.status === 'Completed';
@@ -121,44 +120,61 @@ export default function Service() {
     setShowRecordModal(true);
   };
 
-  // --- FIXED: Complete Service + Remove from Active List ---
+  // ===== FINAL FIX - Already Exists + PATCH + Local Remove =====
   const handleRecord = async (e) => {
     e.preventDefault();
     if (!recordForm.work_done || !recordForm.cost) { alert('Work Done aur Cost zaroori hai'); return; }
     try {
-      // 1. Service Record banao
-      await api.post('service-records/', {
-        appointment: selectedAppointment.id,
-        technician: recordForm.technician ? Number(recordForm.technician) : null,
-        work_done: recordForm.work_done,
-        cost: Number(recordForm.cost),
-        recommendation: recordForm.recommendation || null,
-      }).catch(async (err) => {
-        if (err.response?.status === 404) {
-          return await api.post('service-history/', {
+      // 1. Record banao - agar pehle se hai to dobara mat banao
+      try {
+        await api.post('service-records/', {
+          appointment: selectedAppointment.id,
+          technician: recordForm.technician ? Number(recordForm.technician) : null,
+          work_done: recordForm.work_done,
+          cost: Number(recordForm.cost),
+          recommendation: recordForm.recommendation || null,
+        });
+      } catch (err) {
+        const msg = JSON.stringify(err.response?.data || '');
+        if (msg.includes('already exists')) {
+          console.log('Record pehle se hai - sirf Appointment Completed kar raha hu');
+          // Purane record ko update kar do
+          try {
+            const list = await api.get(`service-records/?appointment=${selectedAppointment.id}`).then(r => Array.isArray(r.data) ? r.data : r.data.results || []);
+            if (list.length > 0) {
+              await api.patch(`service-records/${list[0].id}/`, {
+                technician: recordForm.technician ? Number(recordForm.technician) : null,
+                work_done: recordForm.work_done,
+                cost: Number(recordForm.cost),
+                recommendation: recordForm.recommendation || null,
+              });
+            }
+          } catch (e2) { console.log('Old record update skip:', e2.response?.data); }
+        } else if (err.response?.status === 404) {
+          await api.post('service-history/', {
             appointment: selectedAppointment.id,
             technician: recordForm.technician ? Number(recordForm.technician) : null,
             work_done: recordForm.work_done,
             cost: Number(recordForm.cost),
             recommendation: recordForm.recommendation || null,
           });
+        } else {
+          throw err;
         }
-        throw err;
-      });
-
-      // 2. Appointment ka status Completed kar do - YEHI MISSING THA
-      try {
-        await api.patch(`service-appointments/${selectedAppointment.id}/`, { status: 'Completed' });
-      } catch {
-        await api.patch(`appointments/${selectedAppointment.id}/`, { status: 'Completed' });
       }
 
-      alert('Service Complete! Appointment Active list se hat gaya.');
+      // 2. Appointment Completed kar do
+      let patched = false;
+      for (const url of [`service-appointments/${selectedAppointment.id}/`, `appointments/${selectedAppointment.id}/`]) {
+        try { await api.patch(url, { status: 'Completed' }); patched = true; break; }
+        catch (err) { console.log('PATCH failed:', url, err.response?.status, err.response?.data); }
+      }
+
+      alert(patched ? 'Service Complete! Appointment Active se hat gaya.' : 'Record save hai, Backend PATCH fail hai - list se local hata diya');
       setShowRecordModal(false);
-      // 3. List se turant hata do - reload ka wait mat kar
       setAppointments(prev => prev.map(a => a.id === selectedAppointment.id ? { ...a, status: 'Completed' } : a));
     } catch (err) {
-      console.log(err.response?.data);
+      console.log('RECORD ERROR:', err.response?.data);
       alert('Failed: ' + JSON.stringify(err.response?.data || 'Check Backend'));
     }
   };
@@ -183,7 +199,7 @@ export default function Service() {
           <div className="bg-white border border-[#E8EBF0] rounded- p-6">
             <h3 className="font-display font-bold text-">All Appointments ({visibleAppointments.length})</h3>
             {loading ? <p className="text-sm text-[#5B6B82] py-8 text-center">Loading...</p>
-            : visibleAppointments.length === 0 ? <p className="text-sm text-[#5B6B82] py-8 text-center">{statusFilter === 'Active' ? 'Koi active appointment nahi hai. + Book Appointment se add kar.' : 'Koi completed appointment nahi hai.'}</p>
+            : visibleAppointments.length === 0 ? <p className="text-sm text-[#5B6B82] py-8 text-center">{statusFilter === 'Active' ? 'Koi active appointment nahi hai.' : 'Koi completed appointment nahi hai.'}</p>
             : <div className="mt-5 space-y-3">{visibleAppointments.map(a => (
               <div key={a.id} className="flex flex-col sm:flex-row sm:items-center gap-3 bg-[#F6F7F9] rounded-2xl p-4">
                 <div className="w-10 h-10 bg-white border border-[#E8EBF0] rounded-xl flex items-center justify-center text-lg shrink-0">🔧</div>
